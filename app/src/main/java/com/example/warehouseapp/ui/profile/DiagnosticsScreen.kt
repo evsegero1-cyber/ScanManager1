@@ -65,6 +65,17 @@ fun DiagnosticsDialog(onDismiss: () -> Unit) {
             }.getOrElse { Check(c, false, it.message.orEmpty().take(200)) }
             results = list.toList()
         }
+        // Реальная причина сетевой ошибки — из журнала Firestore этого приложения
+        val log = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val p = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-v", "brief", "-t", "400", "Firestore:W", "*:S"))
+                p.inputStream.bufferedReader().readLines()
+                    .filter { "Status{" in it || "Exception" in it || "UNAVAILABLE" in it || "failed" in it.lowercase() }
+                    .takeLast(4).joinToString("\n") { it.take(300) }
+            }.getOrDefault("")
+        }
+        if (log.isNotBlank()) list += Check("Журнал Firestore", false, log)
+        list += Check("Версия Firestore", true, com.google.firebase.firestore.BuildConfig.VERSION_NAME)
         results = list
     }
 
