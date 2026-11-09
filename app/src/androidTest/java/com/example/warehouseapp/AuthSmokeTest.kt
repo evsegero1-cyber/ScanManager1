@@ -3,6 +3,9 @@ package com.example.warehouseapp
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.rule.GrantPermissionRule
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -11,7 +14,12 @@ import org.junit.runner.RunWith
 @OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
 class AuthSmokeTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+    val rule = createAndroidComposeRule<MainActivity>()
+
+    // Системный диалог разрешения уведомлений перекрывает экран на свежем устройстве — выдаём заранее
+    @get:Rule val chain: TestRule = RuleChain
+        .outerRule(GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS))
+        .around(rule)
 
     private fun waitText(text: String, timeout: Long = 20_000) =
         rule.waitUntilAtLeastOneExists(hasText(text, substring = true), timeout)

@@ -108,7 +108,7 @@ jobs:
             grep -q "FAILURES!!!" instrument.txt && exit 1 || true
             grep -q "OK (" instrument.txt || exit 1
             adb uninstall com.example.warehouseapp
-            adb install app/build/outputs/apk/release/app-release.apk
+            adb install -g app/build/outputs/apk/release/app-release.apk
             adb logcat -c
             adb shell am start -W -n com.example.warehouseapp/.MainActivity
             sleep 15
