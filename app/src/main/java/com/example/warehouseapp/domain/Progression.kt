@@ -91,6 +91,8 @@ object Errors {
             "email address is already in use" in msg -> "Этот email уже зарегистрирован"
             "badly formatted" in msg -> "Некорректный email"
             "network error" in msg || "UNAVAILABLE" in msg -> "Нет подключения к интернету"
+            "RESOURCE_EXHAUSTED" in msg || "Quota exceeded" in msg ->
+                "Исчерпан дневной лимит бесплатного Firebase. Сбросится около 11:00 МСК"
             "PERMISSION_DENIED" in msg -> "Недостаточно прав для этого действия"
             "blocked all requests" in msg || "TOO_MANY" in msg -> "Слишком много попыток, попробуйте позже"
             msg.isBlank() -> "Неизвестная ошибка"

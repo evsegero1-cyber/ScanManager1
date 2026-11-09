@@ -60,7 +60,10 @@ fun DiagnosticsDialog(onDismiss: () -> Unit) {
         }
         for (c in listOf("users", "categories", "brands", "subcategories", "products", "routes", "route_items", "achievements")) {
             list += runCatching {
-                val n = kotlinx.coroutines.withTimeout(15_000) { db.collection(c).limit(500).get(Source.SERVER).await().size() }
+                // count() стоит 1 чтение на 1000 документов, а не по чтению на каждый документ
+                val n = kotlinx.coroutines.withTimeout(15_000) {
+                    db.collection(c).count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count
+                }
                 Check(c, true, "документов: $n")
             }.getOrElse { Check(c, false, it.message.orEmpty().take(200)) }
             results = list.toList()

@@ -61,6 +61,13 @@ fun MainApp(session: SessionViewModel, user: UserProfile, openRouteId: String?, 
     LaunchedEffect(Unit) {
         merge(session.messages, admin.messages).collect { snackbar.showSnackbar(it) }
     }
+    val quota by com.example.warehouseapp.data.QuotaWatcher.exhausted.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.example.warehouseapp.data.QuotaWatcher.check() }
+            kotlinx.coroutines.delay(20_000)
+        }
+    }
     val routeErr by routesVm.error.collectAsStateWithLifecycle()
     LaunchedEffect(routeErr) { routeErr?.let { snackbar.showSnackbar(it); routesVm.consumeError() } }
 
@@ -102,9 +109,21 @@ fun MainApp(session: SessionViewModel, user: UserProfile, openRouteId: String?, 
         snackbarHost = { SnackbarHost(snackbar) },
         containerColor = MaterialTheme.colorScheme.background,
     ) { pad ->
-        Box(Modifier.padding(pad).consumeWindowInsets(pad)) {
+        Column(Modifier.padding(pad).consumeWindowInsets(pad)) {
+          AnimatedVisibility(quota) {
+            Surface(color = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer) {
+                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.CloudOff, null)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Исчерпан дневной лимит бесплатной базы Firebase. Данные снова загрузятся после ~11:00 МСК.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+          }
+          Box(Modifier.weight(1f)) {
             AppNavHost(nav, session, user, catalog, routesVm, people, admin)
             AchievementToast(toast, Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
+          }
         }
     }
 }
