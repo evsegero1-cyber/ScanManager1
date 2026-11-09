@@ -36,6 +36,21 @@ fun DiagnosticsDialog(onDismiss: () -> Unit) {
         val opts = FirebaseApp.getInstance().options
         header = "Проект: ${opts.projectId}\nUID: ${auth.currentUser?.uid}\nEmail: ${auth.currentUser?.email}"
         val list = mutableListOf<Check>()
+        // Доступен ли сервер Firestore по обычному HTTPS (отличает блокировку сети от проблем приложения)
+        list += kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val c = java.net.URL("https://firestore.googleapis.com/").openConnection() as java.net.HttpURLConnection
+                c.connectTimeout = 8000; c.readTimeout = 8000
+                val code = c.responseCode; c.disconnect()
+                Check("Сервер Firestore (HTTPS)", true, "отвечает, код $code")
+            }.getOrElse { Check("Сервер Firestore (HTTPS)", false, "${it.javaClass.simpleName}: ${it.message}") }
+        }
+        val vpn = runCatching {
+            val cm = ServiceLocator.appContext.getSystemService(android.net.ConnectivityManager::class.java)
+            cm.getNetworkCapabilities(cm.activeNetwork)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true
+        }.getOrDefault(false)
+        list += Check("VPN", !vpn, if (vpn) "включён — может мешать соединению с базой" else "выключен")
+        results = list.toList()
         val uid = auth.currentUser?.uid
         if (uid != null) {
             list += runCatching {
@@ -45,7 +60,7 @@ fun DiagnosticsDialog(onDismiss: () -> Unit) {
         }
         for (c in listOf("users", "categories", "brands", "subcategories", "products", "routes", "route_items", "achievements")) {
             list += runCatching {
-                val n = db.collection(c).limit(500).get(Source.SERVER).await().size()
+                val n = kotlinx.coroutines.withTimeout(15_000) { db.collection(c).limit(500).get(Source.SERVER).await().size() }
                 Check(c, true, "документов: $n")
             }.getOrElse { Check(c, false, it.message.orEmpty().take(200)) }
             results = list.toList()
