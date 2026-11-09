@@ -1,0 +1,114 @@
+rules_version = '2';
+
+// Правила безопасности ScanManager.
+// Главное: роль ADMIN, опыт и уровень пользователь НЕ может поменять себе сам.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function userPath(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function earnedPath(uid, aid) { return /databases/$(database)/documents/users/$(uid)/achievements/$(aid); }
+    function isAdmin() {
+      return signedIn()
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.get('role', 'USER') == 'ADMIN';
+    }
+    function changedKeys() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+    // Автоматические достижения: 13/14/15 — 10/50/100 просмотров товаров, 16 — первый товар в маршруте
+    function autoIds() { return ['13', '14', '15', '16']; }
+    function thresholdOk(aid, u) {
+      return (aid == '13' && u.get('viewedProductsCount', 0) >= 10)
+          || (aid == '14' && u.get('viewedProductsCount', 0) >= 50)
+          || (aid == '15' && u.get('viewedProductsCount', 0) >= 100)
+          || (aid == '16' && u.get('hasAddedToRoute', false) == true);
+    }
+
+    function frameOk(key, level) {
+      return key == ''
+          || (key == 'gold' && level >= 5)
+          || (key == 'neon' && level >= 10)
+          || (key == 'ice' && level >= 15);
+    }
+
+    // Опыт можно поднять себе только вместе с получением авто-достижения и ровно на его награду
+    function autoGrantOk(uid, d, old) {
+      let aid = d.get('lastAutoAchievement', '');
+      return aid in autoIds()
+        && !exists(earnedPath(uid, aid))
+        && existsAfter(earnedPath(uid, aid))
+        && d.experience is int
+        && d.experience == old.get('experience', 0)
+             + get(/databases/$(database)/documents/achievements/$(aid)).data.get('experienceReward', 0)
+        && d.level == math.floor(d.experience / 500) + 1;
+    }
+
+    function selfUpdateOk(uid) {
+      let d = request.resource.data;
+      let old = resource.data;
+      let keys = changedKeys();
+      return keys.hasOnly(['photoBase64', 'frameType', 'firstName', 'lastName',
+                           'viewedProductsCount', 'hasAddedToRoute',
+                           'experience', 'level', 'lastAutoAchievement'])
+        && (!keys.hasAny(['photoBase64']) || (d.photoBase64 is string && d.photoBase64.size() < 300000))
+        && (!keys.hasAny(['frameType']) || (d.frameType is string && frameOk(d.frameType, old.get('level', 1))))
+        && (!keys.hasAny(['firstName', 'lastName']) || (
+              d.firstName is string && d.firstName.size() > 0 && d.firstName.size() <= 60
+              && d.lastName is string && d.lastName.size() > 0 && d.lastName.size() <= 60))
+        && (!keys.hasAny(['viewedProductsCount']) || d.viewedProductsCount == old.get('viewedProductsCount', 0) + 1)
+        && (!keys.hasAny(['hasAddedToRoute']) || d.hasAddedToRoute == true)
+        && (!keys.hasAny(['experience', 'level', 'lastAutoAchievement']) || autoGrantOk(uid, d, old));
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'firstName', 'lastName', 'role', 'level', 'experience',
+                                                 'viewedProductsCount', 'hasAddedToRoute', 'photoBase64', 'frameType'])
+        && request.resource.data.role == 'USER'
+        && request.resource.data.level == 1
+        && request.resource.data.experience == 0
+        && request.resource.data.viewedProductsCount == 0
+        && request.resource.data.hasAddedToRoute == false;
+      allow update: if isAdmin() || (signedIn() && request.auth.uid == uid && selfUpdateOk(uid));
+      allow delete: if isAdmin();
+
+      match /achievements/{aid} {
+        allow read: if signedIn();
+        allow create: if isAdmin() || (
+          signedIn() && request.auth.uid == uid
+          && aid in autoIds()
+          && request.resource.data.keys().hasOnly(['earned', 'achievementId', 'earnedAt'])
+          && request.resource.data.earned == true
+          && getAfter(userPath(uid)).data.get('lastAutoAchievement', '') == aid
+          && thresholdOk(aid, getAfter(userPath(uid)).data));
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // Каталог, маршруты и список достижений — читают все, меняет только админ
+    match /categories/{id}     { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /brands/{id}         { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /subcategories/{id}  { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /products/{id}       { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /product_images/{id} { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /routes/{id}         { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /achievements/{id}   { allow read: if signedIn(); allow write: if isAdmin(); }
+
+    // Товары в маршрутах — общие для всех сборщиков
+    match /route_items/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.routeId is string
+        && exists(/databases/$(database)/documents/routes/$(request.resource.data.routeId))
+        && request.resource.data.completed == false
+        && request.resource.data.reminderMinutes is int
+        && request.resource.data.reminderMinutes >= 0 && request.resource.data.reminderMinutes <= 10000;
+      allow update: if isAdmin() || (signedIn() && changedKeys().hasOnly(['completed']) && request.resource.data.completed is bool);
+      allow delete: if signedIn();
+    }
+
+    // Всё остальное закрыто
+    match /{document=**} { allow read, write: if false; }
+  }
+}
