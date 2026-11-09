@@ -56,6 +56,7 @@ fun ProfileScreen(session: SessionViewModel, user: UserProfile) {
     var photoMenu by remember { mutableStateOf(false) }
     var editName by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
+    var diagnostics by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
@@ -179,6 +180,14 @@ fun ProfileScreen(session: SessionViewModel, user: UserProfile) {
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     ListItem(
+                        headlineContent = { Text("Диагностика базы") },
+                        supportingContent = { Text("Проверить, какие данные видит приложение") },
+                        leadingContent = { Icon(Icons.Rounded.MedicalServices, null) },
+                        modifier = Modifier.clickable { diagnostics = true },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    ListItem(
                         headlineContent = { Text("Выйти из аккаунта", color = MaterialTheme.colorScheme.error) },
                         leadingContent = { Icon(Icons.AutoMirrored.Rounded.Logout, null, tint = MaterialTheme.colorScheme.error) },
                         modifier = Modifier.clickable { confirmLogout = true },
@@ -230,6 +239,7 @@ fun ProfileScreen(session: SessionViewModel, user: UserProfile) {
             dismissButton = { TextButton(onClick = { editName = false }) { Text("Отмена") } },
         )
     }
+    if (diagnostics) DiagnosticsDialog { diagnostics = false }
     if (confirmLogout) ConfirmDialog("Выйти из аккаунта?", "Чтобы вернуться, понадобится снова ввести email и пароль.", "Выйти",
         onConfirm = { session.logout() }, onDismiss = { confirmLogout = false })
 }

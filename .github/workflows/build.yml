@@ -75,6 +75,8 @@ jobs:
 
   emulator:
     name: Запуск на эмуляторе (UI-тесты + release APK)
+    # Долгий (~15 мин): запускается только вручную, кнопкой Run workflow
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

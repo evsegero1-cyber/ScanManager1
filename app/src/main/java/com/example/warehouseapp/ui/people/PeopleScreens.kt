@@ -27,9 +27,10 @@ import com.example.warehouseapp.ui.components.*
 import kotlinx.coroutines.flow.*
 
 class PeopleViewModel : ViewModel() {
+    val error = MutableStateFlow<String?>(null)
     val users: StateFlow<List<UserProfile>?> = ServiceLocator.userRepo.usersFlow()
         .map { l -> l.sortedWith(compareByDescending<UserProfile> { it.experience }.thenBy { it.fullName.lowercase() }) }
-        .catch { emit(emptyList()) }
+        .catch { error.value = com.example.warehouseapp.domain.Errors.human(it); emit(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(10_000), null)
 
     fun earnedOf(uid: String): Flow<Set<String>> =
@@ -39,6 +40,7 @@ class PeopleViewModel : ViewModel() {
 @Composable
 fun CollectorsScreen(vm: PeopleViewModel, me: UserProfile?, onUser: (String) -> Unit) {
     val users by vm.users.collectAsStateWithLifecycle()
+    val err by vm.error.collectAsStateWithLifecycle()
     var q by remember { mutableStateOf("") }
     val list = users?.filter { q.isBlank() || it.fullName.contains(q, true) || it.email.contains(q, true) }
     Column(Modifier.fillMaxSize()) {
@@ -50,6 +52,7 @@ fun CollectorsScreen(vm: PeopleViewModel, me: UserProfile?, onUser: (String) -> 
         }
         when {
             list == null -> LoadingBox()
+            err != null && users.isNullOrEmpty() -> EmptyState(Icons.Rounded.CloudOff, "Не удалось загрузить список", err)
             list.isEmpty() -> EmptyState(Icons.Rounded.Groups, "Никого не найдено")
             else -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 itemsIndexed(list, key = { _, u -> u.uid }) { i, u ->

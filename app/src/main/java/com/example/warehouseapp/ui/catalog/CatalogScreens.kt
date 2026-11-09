@@ -64,7 +64,7 @@ fun CatalogHomeScreen(
             }
             cats == null -> LoadingBox()
             error != null && cats.isNullOrEmpty() -> EmptyState(Icons.Rounded.CloudOff, "Не удалось загрузить каталог", error)
-            cats!!.isEmpty() -> EmptyState(Icons.Rounded.Inventory2, "Каталог пуст", "Администратор ещё не добавил категории")
+            cats!!.isEmpty() -> EmptyState(Icons.Rounded.Inventory2, "Каталог пуст", "В базе нет категорий. Проверьте: Профиль → Диагностика базы")
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(160.dp),
                 contentPadding = PaddingValues(16.dp),
