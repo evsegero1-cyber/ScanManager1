@@ -86,6 +86,12 @@ test('незалогиненный ничего не читает', async () => 
 });
 
 // ---------- Авто-достижения ----------
+async function readUser(uid) {
+  let data;
+  await env.withSecurityRulesDisabled(async (c) => { data = (await getDoc(doc(c.firestore(), 'users', uid))).data(); });
+  return data;
+}
+
 async function autoGrant(db, uid, aid, expBefore, reward) {
   return runTransaction(db, async (tx) => {
     const exp = expBefore + reward;
@@ -97,15 +103,15 @@ async function autoGrant(db, uid, aid, expBefore, reward) {
 test('авто-достижение за 10 просмотров выдаётся с правильным опытом', async () => {
   await env.withSecurityRulesDisabled((c) => updateDoc(doc(c.firestore(), 'users', USER), { viewedProductsCount: 10 }));
   await assertSucceeds(autoGrant(as(USER), USER, '13', 0, 50));
-  const snap = await env.withSecurityRulesDisabled(async (c) => (await getDoc(doc(c.firestore(), 'users', USER))).data());
-  if (snap.experience !== 50) throw new Error('опыт не начислен: ' + snap.experience);
+  const snap = await readUser(USER);
+  if (snap.experience !== 50 || snap.level !== 1) throw new Error('опыт не начислен: ' + JSON.stringify(snap));
 });
 
 test('опыт накапливается (исправлен баг старой версии)', async () => {
   await env.withSecurityRulesDisabled((c) => updateDoc(doc(c.firestore(), 'users', USER), { viewedProductsCount: 60, experience: 480, level: 1 }));
   await assertSucceeds(autoGrant(as(USER), USER, '13', 480, 50));
   await assertSucceeds(autoGrant(as(USER), USER, '14', 530, 100));
-  const d = await env.withSecurityRulesDisabled(async (c) => (await getDoc(doc(c.firestore(), 'users', USER))).data());
+  const d = await readUser(USER);
   if (d.experience !== 630 || d.level !== 2) throw new Error(JSON.stringify(d));
 });
 
