@@ -23,7 +23,11 @@ class AdminViewModel : ViewModel() {
 
     private fun run(ok: String?, onDone: () -> Unit = {}, onFail: () -> Unit = {}, block: suspend () -> Unit) = viewModelScope.launch {
         runCatching { block() }
-            .onSuccess { ok?.let { _messages.tryEmit(it) }; onDone() }
+            .onSuccess {
+                // Наши изменения уже в кэше — обновляем экраны без лишних чтений с сервера
+                catalog.reloadFromCache()
+                ok?.let { _messages.tryEmit(it) }; onDone()
+            }
             .onFailure { _messages.tryEmit(if (it is IllegalArgumentException) it.message.orEmpty() else Errors.human(it)); onFail() }
     }
 

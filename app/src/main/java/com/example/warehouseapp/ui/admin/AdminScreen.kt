@@ -346,6 +346,8 @@ private fun AdminUsers(admin: AdminViewModel, people: PeopleViewModel, session: 
     }
     val u = users?.firstOrNull { it.uid == selected }
     if (u != null) UserAdminSheet(u, isMe = u.uid == me?.uid, admin, people, session) { selected = null }
+    // Изменения админа (опыт, роль) попадают в кэш сразу — подтягиваем их без чтения с сервера
+    LaunchedEffect(Unit) { admin.messages.collect { people.reloadFromCache() } }
 }
 
 @Composable

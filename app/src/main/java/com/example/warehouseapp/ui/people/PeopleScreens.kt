@@ -25,13 +25,25 @@ import com.example.warehouseapp.domain.UserProfile
 import com.example.warehouseapp.ui.catalog.ListPage
 import com.example.warehouseapp.ui.components.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import com.example.warehouseapp.data.toUser
+
+private fun com.google.firebase.firestore.DocumentSnapshot.toUserCompat() = toUser()
 
 class PeopleViewModel : ViewModel() {
-    val error = MutableStateFlow<String?>(null)
-    val users: StateFlow<List<UserProfile>?> = ServiceLocator.userRepo.usersFlow()
-        .map { l -> l.sortedWith(compareByDescending<UserProfile> { it.experience }.thenBy { it.fullName.lowercase() }) }
-        .catch { error.value = com.example.warehouseapp.domain.Errors.human(it); emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(10_000), null)
+    // Список сборщиков с фото — тяжёлый, поэтому тоже с сервера не чаще раза в 6 часов (или по «Обновить»)
+    private val cache = com.example.warehouseapp.data.CachedCollection(
+        "users", { ServiceLocator.db.collection("users") }, { it.toUserCompat() }, 6 * 60 * 60 * 1000L,
+    )
+    val error: StateFlow<String?> = cache.error.map { it?.let(com.example.warehouseapp.domain.Errors::human) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val users: StateFlow<List<UserProfile>?> = cache.items
+        .map { l -> l?.sortedWith(compareByDescending<UserProfile> { it.experience }.thenBy { it.fullName.lowercase() }) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    init { viewModelScope.launch { cache.load() } }
+    fun refresh() = viewModelScope.launch { cache.load(force = true) }
+    fun reloadFromCache() = viewModelScope.launch { cache.reloadFromCache() }
 
     fun earnedOf(uid: String): Flow<Set<String>> =
         ServiceLocator.userRepo.earnedFlow(uid).map { it.toSet() }.catch { emit(emptySet()) }
@@ -45,7 +57,10 @@ fun CollectorsScreen(vm: PeopleViewModel, me: UserProfile?, onUser: (String) -> 
     val list = users?.filter { q.isBlank() || it.fullName.contains(q, true) || it.email.contains(q, true) }
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 16.dp).padding(top = 12.dp)) {
-            Text("Сборщики", style = MaterialTheme.typography.headlineMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Сборщики", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                IconButton(onClick = { vm.refresh() }) { Icon(Icons.Rounded.Refresh, "Обновить") }
+            }
             Text("Рейтинг по опыту", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(12.dp))
             SearchField(q, { q = it }, "Поиск по имени")

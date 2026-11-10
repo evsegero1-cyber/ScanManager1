@@ -42,13 +42,21 @@ fun CatalogHomeScreen(
     val query by vm.query.collectAsStateWithLifecycle()
     val results by vm.searchResults.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
+    val refreshing by vm.refreshing.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 16.dp).padding(top = 12.dp)) {
-            Text("Каталог", style = MaterialTheme.typography.headlineMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Каталог", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                if (refreshing) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                else IconButton(onClick = vm::refresh) { Icon(Icons.Rounded.Refresh, "Обновить с сервера") }
+            }
             val total = products?.size
             if (total != null) {
-                Text("$total товаров", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val sync = vm.lastSync
+                val ago = if (sync == 0L) "не загружался с сервера" else
+                    "обновлён " + java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale("ru")).format(java.util.Date(sync))
+                Text("$total товаров · $ago", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.height(12.dp))
             SearchField(query, { vm.query.value = it }, "Товар, бренд, ячейка…")
@@ -63,7 +71,9 @@ fun CatalogHomeScreen(
                 }
             }
             cats == null -> LoadingBox()
-            error != null && cats.isNullOrEmpty() -> EmptyState(Icons.Rounded.CloudOff, "Не удалось загрузить каталог", error)
+            error != null && cats.isNullOrEmpty() -> EmptyState(Icons.Rounded.CloudOff, "Не удалось загрузить каталог", error) {
+                OutlinedButton(onClick = vm::refresh) { Text("Повторить") }
+            }
             cats!!.isEmpty() -> EmptyState(Icons.Rounded.Inventory2, "Каталог пуст", "В базе нет категорий. Проверьте: Профиль → Диагностика базы")
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(160.dp),

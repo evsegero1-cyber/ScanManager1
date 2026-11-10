@@ -5,25 +5,30 @@ import androidx.lifecycle.viewModelScope
 import com.example.warehouseapp.ServiceLocator
 import com.example.warehouseapp.domain.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 
-/** Общий для всего приложения кэш каталога (живые данные из Firestore). */
+/**
+ * Каталог: скачивается с сервера не чаще раза в сутки (или по кнопке «Обновить»).
+ * Остальное время — из памяти телефона, чтобы не тратить лимит бесплатного Firebase.
+ */
 class CatalogViewModel : ViewModel() {
     private val repo = ServiceLocator.catalogRepo
-
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error
-
-    private fun <T> Flow<List<T>>.state(sort: (List<T>) -> List<T>): StateFlow<List<T>?> =
-        map { sort(it) }
-            .catch { _error.value = Errors.human(it); emit(emptyList()) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(10_000), null)
-
     private val ru = compareBy<String> { it.lowercase() }
 
-    val categories = repo.categoriesFlow().state { l -> l.sortedWith(compareBy(ru) { it.name }) }
-    val brands = repo.brandsFlow().state { l -> l.sortedWith(compareBy(ru) { it.name }) }
-    val subcategories = repo.subcategoriesFlow().state { l -> l.sortedWith(compareBy(ru) { it.name }) }
-    val products = repo.productsFlow().state { l -> l.sortedWith(compareBy(ru) { it.name }) }
+    val categories = repo.categoriesCache.items.sorted { it.name }
+    val brands = repo.brandsCache.items.sorted { it.name }
+    val subcategories = repo.subcategoriesCache.items.sorted { it.name }
+    val products = repo.productsCache.items.sorted { it.name }
+
+    private fun <T> StateFlow<List<T>?>.sorted(by: (T) -> String): StateFlow<List<T>?> =
+        map { l -> l?.sortedWith(compareBy(ru, by)) }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val error: StateFlow<String?> = repo.productsCache.error.map { it?.let(Errors::human) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing
+    val lastSync: Long get() = repo.lastSync
 
     val query = MutableStateFlow("")
 
@@ -31,5 +36,13 @@ class CatalogViewModel : ViewModel() {
         if (q.isBlank() || p == null) emptyList() else Search.filter(p, q).take(200)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun productCount(subId: String): Int = products.value?.count { it.subcategoryId == subId } ?: 0
+    init { viewModelScope.launch { repo.loadAll(force = false) } }
+
+    fun refresh() {
+        if (_refreshing.value) return
+        viewModelScope.launch { _refreshing.value = true; repo.loadAll(force = true); _refreshing.value = false }
+    }
+
+    /** После правок в админке — бесплатно перечитываем из кэша (там уже наши изменения). */
+    fun afterLocalChange() { viewModelScope.launch { repo.reloadFromCache() } }
 }

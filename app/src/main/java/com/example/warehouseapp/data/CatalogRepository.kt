@@ -14,18 +14,28 @@ class CatalogRepository(private val db: FirebaseFirestore) {
     private val products = db.collection("products")
     private val images = db.collection("product_images")
 
-    fun categoriesFlow(): Flow<List<Category>> = categories.listFlow { it.toCategory() }
-    fun brandsFlow(): Flow<List<Brand>> = brands.listFlow { it.toBrand() }
-    fun subcategoriesFlow(): Flow<List<Subcategory>> = subcategories.listFlow { it.toSubcategory() }
-    fun productsFlow(): Flow<List<Product>> = products.listFlow { it.toProduct() }
-    fun productFlow(id: String): Flow<Product?> = products.document(id).docFlow { it.toProduct() }
+    private val DAY = 24 * 60 * 60 * 1000L
+    val categoriesCache = CachedCollection("categories", { categories }, { it.toCategory() }, DAY)
+    val brandsCache = CachedCollection("brands", { brands }, { it.toBrand() }, DAY)
+    val subcategoriesCache = CachedCollection("subcategories", { subcategories }, { it.toSubcategory() }, DAY)
+    val productsCache = CachedCollection("products", { products }, { it.toProduct() }, DAY)
+    private val all get() = listOf(categoriesCache, brandsCache, subcategoriesCache, productsCache)
+
+    suspend fun loadAll(force: Boolean) { all.forEach { it.load(force) } }
+    suspend fun reloadFromCache() { all.forEach { it.reloadFromCache() } }
+    val lastSync: Long get() = productsCache.lastSync
+
+    /** Фото — отдельным чтением, сначала из памяти телефона. */
+    private suspend fun cachedImage(id: String): String? {
+        val ref = images.document(id)
+        val cached = runCatching { ref.get(com.google.firebase.firestore.Source.CACHE).await() }.getOrNull()
+        val d = if (cached != null && cached.exists()) cached else ref.get().await()
+        return d.getString("data")?.takeIf { it.isNotBlank() }
+    }
 
     /** Фото штрихкода: новое хранится в product_images, старое — в самом товаре. */
     suspend fun loadImage(p: Product): String? {
-        if (p.hasImage) {
-            val d = images.document(p.id).get().await()
-            d.getString("data")?.takeIf { it.isNotBlank() }?.let { return it }
-        }
+        if (p.hasImage) cachedImage(p.id)?.let { return it }
         return p.barcodeImageUrl.takeIf { it.isNotBlank() }
     }
 
@@ -133,7 +143,7 @@ class CatalogRepository(private val db: FirebaseFirestore) {
 
     /** Переносит старые фото (base64 внутри товара) в product_images — список товаров грузится быстрее. */
     suspend fun migrateLegacyImages(): Int {
-        val legacy = products.get().await().documents.filter { !it.getString("barcodeImageUrl").isNullOrBlank() }
+        val legacy = products.get(com.google.firebase.firestore.Source.CACHE).await().documents.filter { !it.getString("barcodeImageUrl").isNullOrBlank() }
         legacy.forEach { d ->
             val batch = db.batch()
             batch.set(images.document(d.id), mapOf("data" to d.getString("barcodeImageUrl")))
